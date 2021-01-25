@@ -1,14 +1,13 @@
 import * as log from 'https://deno.land/std/log/mod.ts'
 
-import { Server, Model, MozModel, ModelTypes } from './index.ts'
-import { ServerConfig } from './definitions.ts'
+import { Server, Model, MozModel, ModelTypes } from '../index.ts'
 import {
     Controller,
-} from './lib/decorators/controller.ts'
+} from '../lib/decorators/controller.ts'
 import {
     Get,
     Post
-} from './lib/decorators/router.ts'
+} from '../lib/decorators/router.ts'
 
 @Model(ModelTypes.MONGO)
 export class Human extends MozModel {
@@ -20,13 +19,16 @@ export class Human extends MozModel {
 })
 class HumanController {
     @Get('/')
-    async getHuman() {
+    async getHuman(): Promise<Human> {
         const human = await Human.prototype.get()
+
+        log.info(`Some strange human: ${human}`)
+
         return human ?? {}
     }
 
     @Post('/')
-    async addHuman(body: any) {
+    async addHuman(body: any): Promise<string> {
         await Human.prototype.create(body, { overwrite: true })
 
         return 'Added human'
@@ -35,17 +37,16 @@ class HumanController {
 
 @Server(HumanController)
 class App {
-    onStart(config: ServerConfig) {
-        log.info(`Server is listening on :${config.port}`)
+    onStart(port: number) {
+        log.info(`Server started on :${port}...`)
     }
 
-    onStop() {
-        log.info('Server stopped')
-        Deno.exit(1)
+    onClose(code: number) {
+        log.info(`Exited with code [${code}]...`)
     }
 
     onError(error: Error) {
-        throw error
+        log.error(`Oops, ${error.message}`)
     }
 }
 

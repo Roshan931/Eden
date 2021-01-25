@@ -1,4 +1,4 @@
-import { Application, Request, Response } from 'https://deno.land/x/oak/mod.ts'
+import { serve, ServerRequest } from "https://deno.land/std@0.78.0/http/server.ts"
 import * as log from 'https://deno.land/std/log/mod.ts'
 
 import { HttpCodes } from '../../definitions.ts'
@@ -31,7 +31,7 @@ const getHandler = (url: string, method: string, controller: Function): Function
     const base = getBase(url)
     const childPaths = getPathsCombined(url).replace(capitalize(base.substr(1, base.length - 1)), '')
     const handler = controller.prototype[method.toLowerCase() + childPaths]
-
+	log.info(childPaths)
     if (!handler || !handler.call) {
         throw new HandlerNotFoundError()
     }
@@ -41,12 +41,12 @@ const getHandler = (url: string, method: string, controller: Function): Function
 
 const getErrorHandler = (controller: Function | undefined): Function => {
     return controller ? controller.prototype['onError']
-        : (error: any, res: Response) => {
-            return failure(res, HttpCodes.INTERNAL_SERVER_ERROR, error.message)
+        : (error: any, req: ServerRequest) => {
+            return failure(req, HttpCodes.INTERNAL_SERVER_ERROR, error.message)
         }
 }
 
-const onRequest = async (req: Request, res: Response, controllers: Array<Function>) => {
+const onRequest = async (req: ServerRequest, controllers: Array<Function>) => {
     let controller
 
     try {
@@ -54,30 +54,28 @@ const onRequest = async (req: Request, res: Response, controllers: Array<Functio
             throw new InvalidRequestError()
         }
 
-        controller = getController(req.url.pathname, controllers)
-        const handler = getHandler(req.url.pathname, req.method, controller)
+        controller = getController(req.url, controllers)
+        const handler = getHandler(req.url, req.method, controller)
 
         const result = await handler(req)
         
-        return success(res, result)
+        return success(req, result.status, result.data)
     } catch (error) {
         if (error instanceof InvalidRequestError) {
-            return failure(res, HttpCodes.BAD_REQUEST, error.message)    
+            return failure(req, HttpCodes.BAD_REQUEST, error.message)    
         }
 
         if (error instanceof HandlerNotFoundError || error instanceof ControllerNotFoundError) {
-            return failure(res, HttpCodes.NOT_FOUND, error.message)
+            return failure(req, HttpCodes.NOT_FOUND, error.message)
         }
 
         const errorHandler = getErrorHandler(controller)
 
-        return errorHandler(error, res)
+        return errorHandler(error, req)
     }
 }
 
 const setup = async (controllers: Array<Function>, constructor: Function) => {
-    const app = new Application()
-
     if (!constructor.prototype.onStart) {
         constructor.prototype.onStart = () => {
             log.info(`Listening on :${config.port}`)
@@ -90,11 +88,11 @@ const setup = async (controllers: Array<Function>, constructor: Function) => {
         }
     }
 
-    app.use(ctx => onRequest(ctx.request, ctx.response, controllers))
-    
-    app.addEventListener('error', constructor.prototype.onError)
+    const server = serve({ port: config.port! })
 
-    await app.listen({ port: config.port! })
+    for await (const req of server) {
+        onRequest(req, controllers)
+    }
 
     constructor.prototype.onStart(config)
 }
