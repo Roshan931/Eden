@@ -10,7 +10,7 @@ import config from '../../config.ts'
 
 const mongoUri = `mongodb://${config.database?.mongo?.hostname}:${config.database?.mongo?.port}`
 
-export const toModel = async (
+export const init = async (
 	name: string,
 	props: Array<any>,
 ): Promise<Collection<string>> => {
@@ -26,7 +26,7 @@ export const toModel = async (
 
 	const db = client.database(config.database?.mongo?.database!)
 
-	log.info('Connected to mongo')
+	log.info(`Attached ${name} as Mongo model!`)
 
 	const fields: Record<string, unknown> = {}
 

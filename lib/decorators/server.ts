@@ -1,8 +1,9 @@
 import {
-	serve,
+	serveTLS,
 	ServerRequest,
 } from 'https://deno.land/std@0.78.0/http/server.ts'
 import * as log from 'https://deno.land/std/log/mod.ts'
+import * as path from 'https://deno.land/std@0.90.0/path/mod.ts'
 
 import { HttpCodes } from '../../definitions.ts'
 import {
@@ -41,7 +42,6 @@ const getHandler = (
 		'',
 	)
 	const handler = controller.prototype[method.toLowerCase() + childPaths]
-	log.info(childPaths)
 	if (!handler || !handler.call) {
 		throw new HandlerNotFoundError()
 	}
@@ -102,7 +102,17 @@ const setup = async (controllers: Array<Function>, constructor: Function) => {
 		}
 	}
 
-	const server = serve({ port: config.port! })
+	// TODO: Move to utils
+	const __dirname = path.dirname(path.fromFileUrl(import.meta.url))
+
+	const server = serveTLS({
+		port: 443,
+		hostname: 'localhost',
+		certFile: path.join(__dirname, '..', '..', 'keys', 'localhost.crt'),
+		keyFile: path.join(__dirname, '..', '..', 'keys', 'localhost.key'),
+	})
+
+	// const server = serve({ port: config.port! })
 
 	for await (const req of server) {
 		onRequest(req, controllers)

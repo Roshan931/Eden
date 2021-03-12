@@ -1,53 +1,65 @@
 import { ModelTypes } from '../../definitions.ts'
 
-const keywords = ['get', 'update', 'create', 'remove']
+// TODO: Move helpers
+const whitelist = ['Mongo']
 
-type IHandler = {
-	toModel(constructor: Function): any
+const skip = (property: string) =>
+	!['get', 'update', 'create', 'remove'].includes(property)
+
+const getProperties = (instance: Record<string, unknown>) =>
+	Object.getOwnPropertyNames(instance)
+		.filter(skip)
+		.map((property: string) => ({
+			key: property,
+			type: typeof instance[property],
+		}))
+
+// TODO: Move typings
+type DatabaseProvider = {
+	toModel(constructor: any): any
 	get: Function
 	update: Function
 	create: Function
 	remove: Function
 }
 
-const getDriver = async (type: ModelTypes): Promise<IHandler> => {
-	const driver = await import(`../${type.toString().toLowerCase()}/index.ts`)
-
-	return {
-		toModel: async (constructor: any) => {
-			const instance = new constructor()
-			const props = Object.getOwnPropertyNames(instance)
-				.filter((p) => keywords.indexOf(p) < 0)
-				.map((p) => ({ key: p, type: typeof instance[p] }))
-
-			return await driver.toModel(constructor.name, props)
-		},
-		get: driver.get,
-		remove: driver.remove,
-		create: driver.create,
-		update: driver.update,
-	}
-}
-
 type Options = {
 	overwrite: true
 }
 
+const getProvider = async (type: ModelTypes): Promise<DatabaseProvider> => {
+	if (!whitelist.includes(type)) {
+		throw new Error(`${type} database is not supported`)
+	}
+
+	const provider = await import(`../${type.toString().toLowerCase()}/index.ts`)
+
+	return {
+		toModel: async (constructor: any): Promise<any> =>
+			provider.init(constructor.name, getProperties(new constructor())),
+		get: provider.get,
+		remove: provider.remove,
+		create: provider.create,
+		update: provider.update,
+	}
+}
+
 const setup = async (type: ModelTypes, constructor: Function) => {
-	const driver: IHandler = await getDriver(type)
+	const provider: DatabaseProvider = await getProvider(type)
+	const model = provider.toModel(constructor)
 
-	const model = driver.toModel(constructor)
+	const newPrototype = {
+		type,
+		get: async () => provider.get.call(provider.get, model),
+		update: async () => provider.update.call(provider.update, model),
+		create: async (body: any, options: Options) =>
+			provider.create.call(provider.create, model, body, options),
+		remove: async () => provider.remove.call(provider.remove, model),
+	}
 
-	constructor.prototype.type = type
-
-	constructor.prototype.get = async () =>
-		await driver.get.call(driver.get, model)
-	constructor.prototype.update = async () =>
-		await driver.update.call(driver.update, model)
-	constructor.prototype.create = async (body: any, options: Options) =>
-		await driver.create.call(driver.create, model, body, options)
-	constructor.prototype.remove = async () =>
-		await driver.remove.call(driver.remove, model)
+	for (const [key, value] of Object.entries(newPrototype)) {
+		constructor.prototype[key] = value
+	}
 }
 
 export const Model = (type: ModelTypes) => {
