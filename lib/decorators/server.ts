@@ -1,9 +1,9 @@
 import {
+	serve,
 	serveTLS,
 	ServerRequest,
 } from 'https://deno.land/std@0.78.0/http/server.ts'
 import * as log from 'https://deno.land/std/log/mod.ts'
-import * as path from 'https://deno.land/std@0.90.0/path/mod.ts'
 
 import { HttpCodes } from '../../definitions.ts'
 import {
@@ -89,6 +89,23 @@ const onRequest = async (req: ServerRequest, controllers: Array<Function>) => {
 	}
 }
 
+const serveIt = () => {
+	if (config.port === 443) {
+		log.info(`Serving HTTPS on ${config.port}`)
+
+		return serveTLS({
+			port: config.port,
+			hostname: config.hostname,
+			certFile: config.tls!.cert,
+			keyFile: config.tls!.key,
+		})
+	}
+
+	log.info(`Serving HTTP on ${config.port}`)
+
+	return serve({ port: config.port })
+}
+
 const setup = async (controllers: Array<Function>, constructor: Function) => {
 	if (!constructor.prototype.onStart) {
 		constructor.prototype.onStart = () => {
@@ -102,17 +119,7 @@ const setup = async (controllers: Array<Function>, constructor: Function) => {
 		}
 	}
 
-	// TODO: Move to utils
-	const __dirname = path.dirname(path.fromFileUrl(import.meta.url))
-
-	const server = serveTLS({
-		port: 443,
-		hostname: 'localhost',
-		certFile: path.join(__dirname, '..', '..', 'keys', 'localhost.crt'),
-		keyFile: path.join(__dirname, '..', '..', 'keys', 'localhost.key'),
-	})
-
-	// const server = serve({ port: config.port! })
+	const server = serveIt()
 
 	for await (const req of server) {
 		onRequest(req, controllers)

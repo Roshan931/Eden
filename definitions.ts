@@ -78,11 +78,17 @@ export enum HttpCodes {
 	NETWORK_AUTHENTICATION_REQUIRED = 511,
 }
 
+export type TLSKey = {
+	cert: string
+	key: string
+}
+
 export type ServerConfig = {
-	controllers: Function[]
-	port?: number
+	port: number
+	hostname: string
 	redis_port?: number
 	database?: DatabaseConfig
+	tls?: TLSKey
 }
 
 export type DatabaseConfig = {
