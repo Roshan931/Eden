@@ -1,5 +1,6 @@
 export abstract class MozModel {
 	get: Function = () => {}
+	getAll: Function = () => {}
 	update: Function = () => {}
 	create: Function = () => {}
 	remove: Function = () => {}

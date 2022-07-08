@@ -3,26 +3,53 @@ import {
 	WithID,
 } from 'https://deno.land/x/mongo@v0.13.0/ts/collection.ts'
 
-export async function get(pendingModel: Promise<Collection<string>>) {
-	const doc = await pendingModel
-	return await doc.findOne()
+import { Data, Query } from '../decorators/typings.ts'
+
+export async function get(
+	model: Promise<Collection<Data>>,
+	query: Query = {},
+): Promise<(Data & WithID) | null> {
+	const doc = await model
+	return doc.findOne(query)
 }
 
-export async function update(pendingModel: Promise<Collection<string>>) {}
+export async function getAll(
+	model: Promise<Collection<Data>>,
+	query: Query = {},
+): Promise<Data[]> {
+	const doc = await model
+	return doc.find(query)
+}
+
+export async function update(
+	model: Promise<Collection<Data>>,
+	query: Query,
+	data: Data,
+): Promise<void> {
+	const doc = await model
+	await doc.updateOne(query, data)
+}
 
 export async function create(
-	pendingModel: Promise<Collection<string>>,
-	body: Partial<string & WithID>,
+	model: Promise<Collection<Data>>,
+	data: Partial<Data & WithID>,
 	options: any,
-) {
-	const doc = await pendingModel
+): Promise<void> {
+	const doc = await model
 
 	if (options.overwrite) {
 		await doc.deleteMany({})
 	}
 
-	await doc.insertOne(body)
+	//data.id = v4()
+
+	await doc.insertOne(data)
 }
 
-export async function remove(pendingModel: Promise<Collection<string>>) {}
-
+export async function remove(
+	model: Promise<Collection<Data>>,
+	query: Query = {},
+): Promise<void> {
+	const doc = await model
+	await doc.deleteOne(query)
+}

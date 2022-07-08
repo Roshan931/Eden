@@ -1,46 +1,22 @@
 import { ModelTypes } from '../../definitions.ts'
+import { getProperties } from './helpers.ts'
+import { DatabaseProvider, Options, Data, Query } from './typings.ts'
 
-// TODO: Move helpers
-const whitelist = ['Mongo']
-
-const skip = (property: string) =>
-	!['get', 'update', 'create', 'remove'].includes(property)
-
-const getProperties = (instance: Record<string, unknown>) =>
-	Object.getOwnPropertyNames(instance)
-		.filter(skip)
-		.map((property: string) => ({
-			key: property,
-			type: typeof instance[property],
-		}))
-
-// TODO: Move typings
-type DatabaseProvider = {
-	toModel(constructor: any): any
-	get: Function
-	update: Function
-	create: Function
-	remove: Function
-}
-
-type Options = {
-	overwrite: true
+type Body = Data & {
+	body: Data
 }
 
 const getProvider = async (type: ModelTypes): Promise<DatabaseProvider> => {
-	if (!whitelist.includes(type)) {
+	if (!['Mongo'].includes(type)) {
 		throw new Error(`${type} database is not supported`)
 	}
 
 	const provider = await import(`../${type.toString().toLowerCase()}/index.ts`)
 
 	return {
+		...provider,
 		toModel: async (constructor: any): Promise<any> =>
 			provider.init(constructor.name, getProperties(new constructor())),
-		get: provider.get,
-		remove: provider.remove,
-		create: provider.create,
-		update: provider.update,
 	}
 }
 
@@ -50,11 +26,15 @@ const setup = async (type: ModelTypes, constructor: Function) => {
 
 	const newPrototype = {
 		type,
-		get: async () => provider.get.call(provider.get, model),
-		update: async () => provider.update.call(provider.update, model),
-		create: async (body: any, options: Options) =>
-			provider.create.call(provider.create, model, body, options),
-		remove: async () => provider.remove.call(provider.remove, model),
+		get: async (query: Query) => provider.get.call(provider.get, model, query),
+		getAll: async (query: Query) =>
+			provider.getAll.call(provider.get, model, query),
+		update: async (query: Query, data: Body) =>
+			provider.update.call(provider.update, model, query, data.body),
+		create: async (data: Body, options: Options = {}) =>
+			provider.create.call(provider.create, model, data.body, options),
+		remove: async (query: Query) =>
+			provider.remove.call(provider.remove, model, query),
 	}
 
 	for (const [key, value] of Object.entries(newPrototype)) {
