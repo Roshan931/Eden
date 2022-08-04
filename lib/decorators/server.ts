@@ -1,106 +1,135 @@
-import { Application, Request, Response } from 'https://deno.land/x/oak/mod.ts'
+import {
+	serve,
+	serveTLS,
+	ServerRequest,
+} from 'https://deno.land/std@0.78.0/http/server.ts'
 import * as log from 'https://deno.land/std/log/mod.ts'
 
 import { HttpCodes } from '../../definitions.ts'
-import { 
-    getBase, 
-    getPathsCombined,
-    capitalize,
-    success,
-    failure
+import {
+	getBase,
+	getPathsCombined,
+	capitalize,
+	success,
+	failure,
 } from '../utils.ts'
-import { 
-    ControllerNotFoundError, 
-    HandlerNotFoundError, 
-    InvalidRequestError 
+import {
+	ControllerNotFoundError,
+	HandlerNotFoundError,
+	InvalidRequestError,
 } from '../errors.ts'
 import config from '../../config.ts'
 
 const getController = (url: string, controllers: Array<Function>): Function => {
-    const base = getBase(url)
-    const controller = controllers.find(c => c.prototype.baseUrl === base)
+	const base = getBase(url)
+	const controller = controllers.find((c) => c.prototype.baseUrl === base)
 
-    if (!controller) {
-        throw new ControllerNotFoundError()
-    }
+	if (!controller) {
+		throw new ControllerNotFoundError()
+	}
 
-    return controller
+	return controller
 }
 
-const getHandler = (url: string, method: string, controller: Function): Function => {
-    const base = getBase(url)
-    const childPaths = getPathsCombined(url).replace(capitalize(base.substr(1, base.length - 1)), '')
-    const handler = controller.prototype[method.toLowerCase() + childPaths]
+const getHandler = (
+	url: string,
+	method: string,
+	controller: Function,
+): Function => {
+	const base = getBase(url)
+	const childPaths = getPathsCombined(url).replace(
+		capitalize(base.substr(1, base.length - 1)),
+		'',
+	)
+	const handler = controller.prototype[method.toLowerCase() + childPaths]
+	if (!handler || !handler.call) {
+		throw new HandlerNotFoundError()
+	}
 
-    if (!handler || !handler.call) {
-        throw new HandlerNotFoundError()
-    }
-
-    return handler
+	return handler
 }
 
 const getErrorHandler = (controller: Function | undefined): Function => {
-    return controller ? controller.prototype['onError']
-        : (error: any, res: Response) => {
-            return failure(res, HttpCodes.INTERNAL_SERVER_ERROR, error.message)
-        }
+	return controller
+		? controller.prototype['onError']
+		: (error: any, req: ServerRequest) => {
+				return failure(req, HttpCodes.INTERNAL_SERVER_ERROR, error.message)
+		  }
 }
 
-const onRequest = async (req: Request, res: Response, controllers: Array<Function>) => {
-    let controller
+const onRequest = async (req: ServerRequest, controllers: Array<Function>) => {
+	let controller
 
-    try {
-        if (!req.url || !req.method) {
-            throw new InvalidRequestError()
-        }
+	try {
+		if (!req.url || !req.method) {
+			throw new InvalidRequestError()
+		}
 
-        controller = getController(req.url.pathname, controllers)
-        const handler = getHandler(req.url.pathname, req.method, controller)
+		controller = getController(req.url, controllers)
+		const handler = getHandler(req.url, req.method, controller)
 
-        const result = await handler(req)
-        
-        return success(res, result)
-    } catch (error) {
-        if (error instanceof InvalidRequestError) {
-            return failure(res, HttpCodes.BAD_REQUEST, error.message)    
-        }
+		const result = await handler(req)
 
-        if (error instanceof HandlerNotFoundError || error instanceof ControllerNotFoundError) {
-            return failure(res, HttpCodes.NOT_FOUND, error.message)
-        }
+		return success(req, result.status, result.data)
+	} catch (error) {
+		if (error instanceof InvalidRequestError) {
+			return failure(req, HttpCodes.BAD_REQUEST, error.message)
+		}
 
-        const errorHandler = getErrorHandler(controller)
+		if (
+			error instanceof HandlerNotFoundError ||
+			error instanceof ControllerNotFoundError
+		) {
+			return failure(req, HttpCodes.NOT_FOUND, error.message)
+		}
 
-        return errorHandler(error, res)
-    }
+		const errorHandler = getErrorHandler(controller)
+
+		return errorHandler(error, req)
+	}
+}
+
+const serveIt = () => {
+	if (config.port === 443) {
+		log.info(`Serving HTTPS on ${config.port}`)
+
+		return serveTLS({
+			port: config.port,
+			hostname: config.hostname,
+			certFile: config.tls!.cert,
+			keyFile: config.tls!.key,
+		})
+	}
+
+	log.info(`Serving HTTP on ${config.port}`)
+
+	return serve({ port: config.port })
 }
 
 const setup = async (controllers: Array<Function>, constructor: Function) => {
-    const app = new Application()
+	if (!constructor.prototype.onStart) {
+		constructor.prototype.onStart = () => {
+			log.info(`Listening on :${config.port}`)
+		}
+	}
 
-    if (!constructor.prototype.onStart) {
-        constructor.prototype.onStart = () => {
-            log.info(`Listening on :${config.port}`)
-        }
-    }
+	if (!constructor.prototype.onError) {
+		constructor.prototype.onError = (error: Error) => {
+			log.error(error)
+		}
+	}
 
-    if (!constructor.prototype.onError) {
-        constructor.prototype.onError = (error: Error) => {
-            log.error(error)
-        }
-    }
+	const server = serveIt()
 
-    app.use(ctx => onRequest(ctx.request, ctx.response, controllers))
-    
-    app.addEventListener('error', constructor.prototype.onError)
+	for await (const req of server) {
+		onRequest(req, controllers)
+	}
 
-    await app.listen({ port: config.port! })
-
-    constructor.prototype.onStart(config)
+	constructor.prototype.onStart(config)
 }
 
 export const Server = (...controllers: Array<Function>) => {
-    return (constructor: Function) => {
-        setup(controllers, constructor)
-    }
+	return (constructor: Function) => {
+		setup(controllers, constructor)
+	}
 }

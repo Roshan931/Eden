@@ -1,9 +1,9 @@
 interface IControllerConfig {
-    baseUrl: String
+	baseUrl: String
 }
 
 export const Controller = (config: IControllerConfig) => {
-    return (constructor: Function) => {
-        constructor.prototype.baseUrl = config.baseUrl
-    }
+	return (constructor: Function) => {
+		constructor.prototype.baseUrl = config.baseUrl
+	}
 }

@@ -1,3 +1,5 @@
 .deno_plugins
 .vscode
 .env
+.vim
+keys

@@ -1,53 +1,49 @@
 import { ModelTypes } from '../../definitions.ts'
+import { getProperties } from './helpers.ts'
+import { DatabaseProvider, Options, Data, Query } from './typings.ts'
 
-const keywords = [ 'get', 'update', 'create', 'remove' ]
-
-type IHandler = {
-    toModel(constructor: Function): any
-    get: Function
-    update: Function
-    create: Function
-    remove: Function
+type Body = Data & {
+	body: Data
 }
 
-const getDriver = async (type: ModelTypes): Promise<IHandler> => {
-    const driver = await import(`../${type.toString().toLowerCase()}/index.ts`)
-    
-    return {
-        toModel: async (constructor: any) => {
-            const instance = new constructor()
-            const props = Object.getOwnPropertyNames(instance)
-                .filter(p => keywords.indexOf(p) < 0)
-                .map(p => ({ key: p, type: typeof instance[p] }))
+const getProvider = async (type: ModelTypes): Promise<DatabaseProvider> => {
+	if (!['Mongo'].includes(type)) {
+		throw new Error(`${type} database is not supported`)
+	}
 
-            return await driver.toModel(constructor.name, props)
-        },
-        get: driver.get,
-        remove: driver.remove,
-        create: driver.create,
-        update: driver.update,
-    }
-}
+	const provider = await import(`../${type.toString().toLowerCase()}/index.ts`)
 
-type Options = {
-    overwrite: true
+	return {
+		...provider,
+		toModel: async (constructor: any): Promise<any> =>
+			provider.init(constructor.name, getProperties(new constructor())),
+	}
 }
 
 const setup = async (type: ModelTypes, constructor: Function) => {
-    const driver: IHandler = await getDriver(type)
+	const provider: DatabaseProvider = await getProvider(type)
+	const model = provider.toModel(constructor)
 
-    const model = driver.toModel(constructor)
+	const newPrototype = {
+		type,
+		get: async (query: Query) => provider.get.call(provider.get, model, query),
+		getAll: async (query: Query) =>
+			provider.getAll.call(provider.get, model, query),
+		update: async (query: Query, data: Body) =>
+			provider.update.call(provider.update, model, query, data.body),
+		create: async (data: Body, options: Options = {}) =>
+			provider.create.call(provider.create, model, data.body, options),
+		remove: async (query: Query) =>
+			provider.remove.call(provider.remove, model, query),
+	}
 
-    constructor.prototype.type = type
-
-    constructor.prototype.get = async () => await driver.get.call(driver.get, model)
-    constructor.prototype.update = async () => await driver.update.call(driver.update, model)
-    constructor.prototype.create = async (body: any, options: Options) => await driver.create.call(driver.create, model, body, options)
-    constructor.prototype.remove = async () => await driver.remove.call(driver.remove, model)
+	for (const [key, value] of Object.entries(newPrototype)) {
+		constructor.prototype[key] = value
+	}
 }
 
 export const Model = (type: ModelTypes) => {
-    return (constructor: Function) => {
-        setup(type, constructor)
-    }
+	return (constructor: Function) => {
+		setup(type, constructor)
+	}
 }
